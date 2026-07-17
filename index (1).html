@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BROKERDUH — Signal Patch Bay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+<style>
+  :root{
+    --bg: #0F1418; --panel: #171F26; --panel-raised: #1D2731; --line: #263140;
+    --amber: #FFB020; --amber-dim: #7A5A18; --teal: #5EEAD4; --teal-dim: #245C53;
+    --red: #FF5C5C; --text: #E7EDF2; --muted: #6B7885;
+    --mono: 'JetBrains Mono', monospace; --sans: 'Inter', sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; }
+  body{ background-image: radial-gradient(circle at 20% 0%, rgba(255,176,32,0.05), transparent 40%), radial-gradient(circle at 80% 100%, rgba(94,234,212,0.04), transparent 40%); }
+  .wrap{ max-width:1240px; margin:0 auto; padding:20px 16px 60px; }
+
+  header{ display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:18px; flex-wrap:wrap; gap:12px; }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{ width:34px; height:34px; border-radius:8px; background:var(--panel-raised); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; position:relative; flex-shrink:0; }
+  .brand-mark::after{ content:''; width:13px; height:13px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px var(--amber); animation:pulse-dot 2.2s ease-in-out infinite; }
+  @keyframes pulse-dot{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.55; transform:scale(.8);} }
+  .brand h1{ font-family:var(--mono); font-size:14px; letter-spacing:.14em; margin:0; text-transform:uppercase; }
+  .brand span{ display:block; font-size:10.5px; color:var(--muted); letter-spacing:.05em; margin-top:2px; }
+  .status-row{ display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .stat{ font-family:var(--mono); font-size:11.5px; color:var(--muted); }
+  .stat b{ color:var(--text); font-weight:500; }
+  .status-pill{ display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:11.5px; padding:6px 11px; border-radius:20px; border:1px solid var(--line); background:var(--panel-raised); }
+  .status-pill .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .status-pill.live .dot{ background:var(--teal); box-shadow:0 0 8px var(--teal); animation:pulse-dot 1.6s infinite; }
+  .status-pill.demo .dot{ background:var(--amber); box-shadow:0 0 8px var(--amber); animation:pulse-dot 1.6s infinite; }
+
+  button, input, select{ font-family:var(--mono); font-size:12.5px; border-radius:6px; border:1px solid var(--line); background:var(--panel-raised); color:var(--text); padding:8px 11px; outline:none; }
+  button{ cursor:pointer; transition:.15s border-color, .15s background; }
+  button:hover{ border-color:var(--amber); }
+  button.primary{ background:var(--amber); color:#1A1200; border-color:var(--amber); font-weight:700; }
+  button.primary:hover{ background:#ffc250; }
+  button.ghost{ background:transparent; }
+  button.danger{ color:var(--red); border-color:var(--red); background:transparent; }
+  button.small{ padding:5px 8px; font-size:11px; }
+  input::placeholder{ color:var(--muted); }
+  input:focus, select:focus, button:focus-visible{ border-color:var(--teal); box-shadow:0 0 0 2px rgba(94,234,212,.15); }
+
+  .section-label{ font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:26px 2px 12px; display:flex; align-items:center; gap:10px; }
+  .section-label::after{ content:''; flex:1; height:1px; background:var(--line); }
+  .section-label .count{ color:var(--amber); }
+
+  /* profiles */
+  .profile-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:stretch; }
+  .profile-chip{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .profile-chip.active{ border-color:var(--teal); }
+  .profile-chip .name{ font-family:var(--mono); font-size:12px; }
+  .profile-form{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:10px; display:none; }
+  .profile-form.open{ display:block; }
+  .form-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
+  .form-grid input{ width:100%; }
+  .form-note{ font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .checkbox-row{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--muted); }
+
+  /* device management */
+  .device-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .device-card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .device-card.muted{ opacity:.5; }
+  .device-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .device-alias{ font-family:var(--mono); font-size:13px; background:transparent; border:none; color:var(--text); padding:0; width:100%; }
+  .device-actions{ display:flex; gap:6px; margin-top:10px; }
+  .device-meta{ font-size:10.5px; color:var(--muted); font-family:var(--mono); margin-top:6px; }
+
+  /* channel grid */
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; position:relative; overflow:hidden; }
+  .card.offline{ opacity:.5; }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px; }
+  .topic-name{ font-family:var(--mono); font-size:12.5px; word-break:break-all; cursor:pointer; }
+  .topic-name:hover{ color:var(--amber); }
+  .topic-tag{ font-family:var(--mono); font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:3px; }
+  .online-dot{ width:9px; height:9px; border-radius:50%; background:var(--teal); flex-shrink:0; margin-top:3px; box-shadow:0 0 6px var(--teal); }
+  .card.offline .online-dot{ background:var(--red); box-shadow:none; animation:none; }
+  .online-dot.live{ animation:pulse-dot 1.8s infinite; }
+  canvas.trace{ width:100%; height:44px; display:block; margin:6px 0 8px; cursor:pointer; }
+  .payload{ font-family:var(--mono); font-size:12px; background:var(--panel-raised); border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--teal); word-break:break-all; min-height:18px; white-space:pre-wrap; max-height:80px; overflow-y:auto; }
+  .card-meta{ display:flex; justify-content:space-between; margin-top:8px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+  .alert-row{ display:flex; gap:6px; margin-top:8px; }
+  .alert-row input{ width:100%; padding:5px 7px; font-size:11px; }
+
+  /* console */
+  .console{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:6px; }
+  .console-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .console-row input{ flex:1; min-width:140px; }
+  .console-row input#pub-topic{ flex:0 0 200px; }
+  .json-error{ color:var(--red); font-family:var(--mono); font-size:11px; margin-top:8px; display:none; }
+
+  /* history / log */
+  .log-controls{ display:flex; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .log-controls input{ flex:1; min-width:180px; }
+  .log{ background:#0B0F13; border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-family:var(--mono); font-size:11.5px; height:240px; overflow-y:auto; }
+  .log-line{ display:flex; gap:10px; padding:3px 0; color:var(--muted); border-bottom:1px solid rgba(255,255,255,0.03); flex-wrap:wrap; }
+  .log-line .t{ color:var(--muted); flex-shrink:0; width:70px; }
+  .log-line .top{ color:var(--amber); flex-shrink:0; }
+  .log-line .pay{ color:var(--text); word-break:break-all; }
+  .log::-webkit-scrollbar{ width:8px; } .log::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+  /* modal (chart detail) */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(5,8,10,.75); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .modal-backdrop.open{ display:flex; }
+  .modal{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; width:100%; max-width:640px; }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .modal-head h3{ font-family:var(--mono); font-size:13px; margin:0; word-break:break-all; }
+  canvas#modal-chart{ width:100%; height:220px; background:#0B0F13; border-radius:8px; border:1px solid var(--line); }
+
+  /* toasts */
+  .toast-stack{ position:fixed; top:16px; right:16px; display:flex; flex-direction:column; gap:8px; z-index:80; max-width:320px; }
+  .toast{ background:var(--panel-raised); border:1px solid var(--red); border-left:4px solid var(--red); border-radius:8px; padding:10px 12px; font-family:var(--mono); font-size:11.5px; box-shadow:0 6px 18px rgba(0,0,0,.4); animation:slide-in .2s ease; }
+  .toast.info{ border-color:var(--teal); border-left-color:var(--teal); }
+  @keyframes slide-in{ from{ transform:translateX(20px); opacity:0;} to{ transform:translateX(0); opacity:1;} }
+
+  footer{ text-align:center; margin-top:34px; color:var(--muted); font-family:var(--mono); font-size:11px; }
+  footer a{ color:var(--teal); text-decoration:none; }
+
+  /* mobile */
+  @media (max-width: 640px){
+    header{ flex-direction:column; align-items:stretch; }
+    .status-row{ justify-content:space-between; }
+    .console-row input#pub-topic{ flex:1 1 100%; }
+    .grid, .device-grid{ grid-template-columns:1fr; }
+    button{ padding:10px 12px; }
+    .modal{ padding:14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div><h1>BROKERDUH</h1><span>MQTT pub/sub patch bay</span></div>
+    </div>
+    <div class="status-row">
+      <div class="stat">MSGS/MIN <b id="stat-rate">0</b></div>
+      <div class="stat">DEVICES <b id="stat-devices">0</b></div>
+      <div class="status-pill demo" id="status-pill"><span class="dot"></span><span id="status-text">DEMO MODE</span></div>
+    </div>
+  </header>
+
+  <div class="section-label">Broker profiles</div>
+  <div class="profile-row" id="profile-row"></div>
+  <div class="profile-form" id="profile-form">
+    <div class="form-grid">
+      <input id="pf-name" placeholder="Profile name (e.g. Home Lab)" />
+      <input id="pf-url" placeholder="wss://host:9001" />
+      <input id="pf-username" placeholder="Username (optional)" />
+      <input id="pf-password" type="password" placeholder="Password (optional)" />
+    </div>
+    <div class="checkbox-row" style="margin-top:10px;">
+      <input type="checkbox" id="pf-tls" style="width:auto;" />
+      <label for="pf-tls">Force TLS (rewrites url to wss://)</label>
+    </div>
+    <div class="form-note">
+      Auth here is username/password over TLS — standard and fully supported by browsers.
+      Mutual-TLS (client certificates) can't be done from in-page JavaScript; browsers only
+      expose that through the OS cert store, not code. If you need it, terminate mutual-TLS
+      at a reverse proxy (e.g. nginx) in front of the broker's WebSocket listener.
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px;">
+      <button class="primary" id="pf-save">Save profile</button>
+      <button class="ghost" id="pf-cancel">Cancel</button>
+    </div>
+  </div>
+  <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+    <button id="pf-new-btn">+ New profile</button>
+    <button class="ghost" id="demo-btn">Use demo mode</button>
+  </div>
+
+  <div class="section-label">Devices <span class="count" id="device-count-label"></span></div>
+  <div class="device-grid" id="device-grid"></div>
+
+  <div class="section-label">Live channels</div>
+  <div class="grid" id="channel-grid"></div>
+
+  <div class="section-label">Publish</div>
+  <div class="console">
+    <div class="console-row">
+      <input id="pub-topic" placeholder="topic, e.g. devices/eyebot/commands" />
+      <input id="pub-payload" placeholder="payload" />
+      <div class="checkbox-row"><input type="checkbox" id="pub-json-mode" style="width:auto;" /><label for="pub-json-mode">JSON</label></div>
+      <button class="primary" id="pub-btn">Send →</button>
+    </div>
+    <div class="json-error" id="json-error">Invalid JSON — fix before sending.</div>
+  </div>
+
+  <div class="section-label">Message history</div>
+  <div class="log-controls">
+    <input id="search-input" placeholder="search topic or payload..." />
+    <button class="ghost small" id="clear-history">Clear history</button>
+  </div>
+  <div class="log" id="log"></div>
+
+  <footer>
+    BROKERDUH · point it at a real Mosquitto/EMQX broker's WebSocket listener, or leave it in demo mode · <a href="https://github.com/" target="_blank">github.com/&lt;you&gt;/brokerduh</a>
+  </footer>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="ghost small" id="modal-close">Close</button></div>
+    <canvas id="modal-chart" width="600" height="220"></canvas>
+    <div class="form-grid" style="margin-top:12px;">
+      <input id="modal-alert-min" placeholder="Alert min (optional)" />
+      <input id="modal-alert-max" placeholder="Alert max (optional)" />
+    </div>
+    <div style="margin-top:10px;"><button class="primary small" id="modal-save-alert">Save alert thresholds</button></div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+/* ===========================================================
+   BROKERDUH — state
+   Note: profiles/devices/history are kept in-memory for this
+   session only (no localStorage — this file can run inside a
+   preview sandbox that blocks it). If you're self-hosting this
+   outside a sandboxed preview, you can add localStorage persistence
+   around loadProfiles()/saveProfiles() yourself.
+   =========================================================== */
+const state = {
+  mode: 'demo', client: null, activeProfileId: null,
+  profiles: [], devices: new Map(), channels: new Map(),
+  history: [], searchQuery: '', msgTimestamps: [], modalTopic: null,
+};
+
+const $ = id => document.getElementById(id);
+const grid = $('channel-grid'), deviceGrid = $('device-grid'), logEl = $('log');
+const statusPill = $('status-pill'), statusText = $('status-text');
+const statDevices = $('stat-devices'), statRate = $('stat-rate');
+const toastStack = $('toast-stack');
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function nowLabel(){ return new Date().toTimeString().split(' ')[0]; }
+function escapeHtml(str){ return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
+function timeAgo(ts){ const s = Math.floor((Date.now()-ts)/1000); return s < 2 ? 'now' : s + 's ago'; }
+
+function tryParseJSON(str){ try{ return JSON.parse(str); }catch(e){ return undefined; } }
+function prettyPayload(payload){
+  const parsed = tryParseJSON(payload);
+  if(parsed !== undefined) return JSON.stringify(parsed, null, 2);
+  return payload;
+}
+
+function pushToast(message, type){
+  const el = document.createElement('div');
+  el.className = 'toast' + (type === 'info' ? ' info' : '');
+  el.textContent = message;
+  toastStack.appendChild(el);
+  setTimeout(() => el.remove(), 6000);
+}
+
+/* ---------------- device management ---------------- */
+function deviceIdFromTopic(topic){
+  const parts = topic.split('/');
+  return (parts[0] === 'devices' && parts[1]) ? parts[1] : null;
+}
+function ensureDevice(id){
+  if(!state.devices.has(id)) state.devices.set(id, { alias:id, lastSeen:Date.now(), muted:false });
+  const d = state.devices.get(id); d.lastSeen = Date.now(); return d;
+}
+function renderDevices(){
+  deviceGrid.innerHTML = '';
+  $('device-count-label').textContent = '(' + state.devices.size + ')';
+  statDevices.textContent = state.devices.size;
+  Array.from(state.devices.entries()).sort().forEach(([id, d]) => {
+    const offline = (Date.now() - d.lastSeen) > 8000;
+    const card = document.createElement('div');
+    card.className = 'device-card' + (d.muted ? ' muted' : '');
+    card.innerHTML = `
+      <div class="device-top">
+        <input class="device-alias" value="${escapeHtml(d.alias)}" data-id="${id}" />
+        <span class="online-dot ${offline ? '' : 'live'}" style="${offline ? 'background:var(--red);box-shadow:none;' : ''}"></span>
+      </div>
+      <div class="device-meta">${id} · ${offline ? 'offline' : timeAgo(d.lastSeen)}</div>
+      <div class="device-actions">
+        <button class="small" data-mute="${id}">${d.muted ? 'Unmute' : 'Mute alerts'}</button>
+        <button class="small danger" data-remove="${id}">Remove</button>
+      </div>`;
+    deviceGrid.appendChild(card);
+  });
+  deviceGrid.querySelectorAll('.device-alias').forEach(inp => {
+    inp.addEventListener('change', e => { state.devices.get(e.target.dataset.id).alias = e.target.value; });
+  });
+  deviceGrid.querySelectorAll('[data-mute]').forEach(btn => {
+    btn.addEventListener('click', () => { const d = state.devices.get(btn.dataset.mute); d.muted = !d.muted; renderDevices(); });
+  });
+  deviceGrid.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', () => { state.devices.delete(btn.dataset.remove); renderDevices(); });
+  });
+}
+
+/* ---------------- channels + charts ---------------- */
+function ensureChannel(topic){
+  if(!state.channels.has(topic)){
+    state.channels.set(topic, { history:[], lastPayload:'—', lastSeen:Date.now(), online:true, count:0, alertMin:null, alertMax:null });
+    renderChannelGrid();
+  }
+  return state.channels.get(topic);
+}
+function numericValue(payload){
+  const parsed = tryParseJSON(payload);
+  if(typeof parsed === 'number') return parsed;
+  if(parsed && typeof parsed === 'object'){
+    const firstNum = Object.values(parsed).find(v => typeof v === 'number');
+    if(firstNum !== undefined) return firstNum;
+  }
+  const num = parseFloat(payload);
+  return isNaN(num) ? null : num;
+}
+function drawSparkline(canvas, history){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth * 2, h = canvas.height = 88;
+  ctx.clearRect(0,0,w,h);
+  if(history.length < 2) return;
+  const vals = history.map(p => p.v);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = (max - min) || 1;
+  ctx.beginPath();
+  history.forEach((p,i) => {
+    const x = (i/(history.length-1)) * w;
+    const y = h - ((p.v - min)/range) * (h-10) - 5;
+    i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle = '#FFB020'; ctx.lineWidth = 3; ctx.shadowColor='#FFB020'; ctx.shadowBlur=6; ctx.stroke();
+}
+function renderChannelGrid(){
+  grid.innerHTML = '';
+  Array.from(state.channels.keys()).sort().forEach(topic => {
+    const ch = state.channels.get(topic);
+    const offline = (Date.now() - ch.lastSeen) > 8000;
+    ch.online = !offline;
+    const card = document.createElement('div');
+    card.className = 'card' + (offline ? ' offline' : '');
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="topic-name" data-topic="${escapeHtml(topic)}">${escapeHtml(topic)}</div>
+          <div class="topic-tag">${offline ? 'no signal' : 'subscribed'}${ch.alertMin!==null||ch.alertMax!==null ? ' · alert set' : ''}</div>
+        </div>
+        <div class="online-dot ${offline ? '' : 'live'}"></div>
+      </div>
+      <canvas class="trace" data-topic="${escapeHtml(topic)}"></canvas>
+      <div class="payload">${escapeHtml(prettyPayload(ch.lastPayload))}</div>
+      <div class="card-meta"><span>${ch.count} msgs</span><span>${offline ? '' : 'last: ' + timeAgo(ch.lastSeen)}</span></div>`;
+    grid.appendChild(card);
+    const canvas = card.querySelector('canvas');
+    drawSparkline(canvas, ch.history);
+    canvas.addEventListener('click', () => openModal(topic));
+    card.querySelector('.topic-name').addEventListener('click', () => openModal(topic));
+  });
+}
+
+/* ---------------- modal / detail chart + alerts ---------------- */
+function openModal(topic){
+  state.modalTopic = topic;
+  const ch = state.channels.get(topic);
+  $('modal-title').textContent = topic;
+  $('modal-alert-min').value = ch.alertMin ?? '';
+  $('modal-alert-max').value = ch.alertMax ?? '';
+  $('modal-backdrop').classList.add('open');
+  drawModalChart(ch.history);
+}
+function drawModalChart(history){
+  const canvas = $('modal-chart');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth, h = canvas.height = 220;
+  ctx.clearRect(0,0,w,h);
+  if(history.length < 2){ ctx.fillStyle='#6B7885'; ctx.font='12px monospace'; ctx.fillText('Not enough numeric data yet...', 16, h/2); return; }
+  const vals = history.map(p=>p.v); const min=Math.min(...vals), max=Math.max(...vals); const range=(max-min)||1;
+  ctx.strokeStyle = '#263140'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ const y = 10 + i*(h-20)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  ctx.beginPath();
+  history.forEach((p,i)=>{ const x=(i/(history.length-1))*(w-20)+10; const y = h-10-((p.v-min)/range)*(h-20); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle='#5EEAD4'; ctx.lineWidth=2; ctx.shadowColor='#5EEAD4'; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
+  ctx.fillStyle='#6B7885'; ctx.font='11px monospace';
+  ctx.fillText(max.toFixed(2), 6, 14); ctx.fillText(min.toFixed(2), 6, h-6);
+}
+$('modal-close').addEventListener('click', () => $('modal-backdrop').classList.remove('open'));
+$('modal-backdrop').addEventListener('click', e => { if(e.target.id === 'modal-backdrop') $('modal-backdrop').classList.remove('open'); });
+$('modal-save-alert').addEventListener('click', () => {
+  const ch = state.channels.get(state.modalTopic);
+  const min = $('modal-alert-min').value.trim(), max = $('modal-alert-max').value.trim();
+  ch.alertMin = min === '' ? null : parseFloat(min);
+  ch.alertMax = max === '' ? null : parseFloat(max);
+  pushToast('Alert thresholds saved for ' + state.modalTopic, 'info');
+  renderChannelGrid();
+});
+
+/* ---------------- history / search ---------------- */
+function renderLog(){
+  const q = state.searchQuery.toLowerCase();
+  const filtered = q ? state.history.filter(m => m.topic.toLowerCase().includes(q) || m.payload.toLowerCase().includes(q)) : state.history;
+  logEl.innerHTML = '';
+  filtered.slice(-200).forEach(m => {
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="t">${m.time}</span><span class="top">${escapeHtml(m.topic)}</span><span class="pay">${escapeHtml(m.payload)}</span>`;
+    logEl.appendChild(line);
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+$('search-input').addEventListener('input', e => { state.searchQuery = e.target.value; renderLog(); });
+$('clear-history').addEventListener('click', () => { state.history = []; renderLog(); });
+
+/* ---------------- incoming message pipeline ---------------- */
+function checkAlerts(topic, ch, value){
+  const devId = deviceIdFromTopic(topic);
+  const device = devId ? state.devices.get(devId) : null;
+  if(device && device.muted) return;
+  if(value === null) return;
+  if(ch.alertMin !== null && value < ch.alertMin) pushToast(`⚠ ${topic} = ${value} (below min ${ch.alertMin})`);
+  if(ch.alertMax !== null && value > ch.alertMax) pushToast(`⚠ ${topic} = ${value} (above max ${ch.alertMax})`);
+}
+function handleIncoming(topic, payload){
+  const ch = ensureChannel(topic);
+  ch.lastPayload = payload; ch.lastSeen = Date.now(); ch.count++;
+  const value = numericValue(payload);
+  if(value !== null){ ch.history.push({t:Date.now(), v:value}); if(ch.history.length > 60) ch.history.shift(); }
+  const devId = deviceIdFromTopic(topic);
+  if(devId) ensureDevice(devId);
+  checkAlerts(topic, ch, value);
+  state.msgTimestamps.push(Date.now());
+  state.history.push({ time: nowLabel(), topic, payload });
+  if(state.history.length > 500) state.history.shift();
+  renderLog();
+  renderChannelGrid();
+  renderDevices();
+  if(state.modalTopic === topic) drawModalChart(ch.history);
+}
+setInterval(() => {
+  const cutoff = Date.now() - 60000;
+  state.msgTimestamps = state.msgTimestamps.filter(t => t > cutoff);
+  statRate.textContent = state.msgTimestamps.length;
+  renderChannelGrid(); renderDevices();
+}, 1000);
+
+/* ---------------- demo mode ---------------- */
+let demoTimer = null;
+const demoDevices = [
+  { topic:'devices/eyebot/telemetry', gen:() => (20 + Math.random()*8).toFixed(1) },
+  { topic:'devices/paperplane/telemetry', gen:() => JSON.stringify({battery: Math.round(Math.random()*100)}) },
+  { topic:'devices/flightctrl/pid', gen:() => (Math.random()*10-5).toFixed(2) },
+  { topic:'devices/eyebot/status', gen:() => Math.random() > 0.15 ? 'ok' : 'lag' },
+];
+function startDemo(){
+  stopLive(); state.mode = 'demo';
+  statusPill.className = 'status-pill demo'; statusText.textContent = 'DEMO MODE';
+  demoDevices.forEach(d => ensureChannel(d.topic));
+  demoTimer = setInterval(() => { const d = demoDevices[Math.floor(Math.random()*demoDevices.length)]; handleIncoming(d.topic, d.gen()); }, 900);
+}
+function stopDemo(){ if(demoTimer){ clearInterval(demoTimer); demoTimer = null; } }
+
+/* ---------------- live broker connection ---------------- */
+function connectLive(profile){
+  stopDemo();
+  if(state.client){ try{ state.client.end(true); }catch(e){} }
+  state.channels.clear(); state.devices.clear();
+  let url = profile.url;
+  if(profile.tls && url.startsWith('ws://')) url = url.replace('ws://','wss://');
+  pushToast('Connecting to ' + url + ' ...', 'info');
+  const opts = { connectTimeout:6000, reconnectPeriod:2000 };
+  if(profile.username) opts.username = profile.username;
+  if(profile.password) opts.password = profile.password;
+  const client = mqtt.connect(url, opts);
+  state.client = client; state.mode = 'live';
+  client.on('connect', () => {
+    statusPill.className = 'status-pill live'; statusText.textContent = 'LIVE — ' + profile.name;
+    pushToast('Connected to ' + profile.name, 'info'); client.subscribe('#');
+  });
+  client.on('message', (topic, message) => handleIncoming(topic, message.toString()));
+  client.on('error', err => pushToast('Broker error: ' + err.message));
+  client.on('close', () => { statusText.textContent = 'DISCONNECTED'; statusPill.className = 'status-pill'; });
+}
+function stopLive(){ if(state.client){ try{ state.client.end(true); }catch(e){} state.client = null; } }
+
+/* ---------------- profiles ---------------- */
+function renderProfiles(){
+  const row = $('profile-row'); row.innerHTML = '';
+  state.profiles.forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'profile-chip' + (p.id === state.activeProfileId ? ' active' : '');
+    chip.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>
+      <button class="small primary" data-connect="${p.id}">Connect</button>
+      <button class="small danger" data-del="${p.id}">✕</button>`;
+    row.appendChild(chip);
+  });
+  row.querySelectorAll('[data-connect]').forEach(btn => btn.addEventListener('click', () => {
+    const p = state.profiles.find(x => x.id === btn.dataset.connect);
+    state.activeProfileId = p.id; renderProfiles(); connectLive(p);
+  }));
+  row.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => {
+    state.profiles = state.profiles.filter(x => x.id !== btn.dataset.del); renderProfiles();
+  }));
+}
+$('pf-new-btn').addEventListener('click', () => $('profile-form').classList.add('open'));
+$('pf-cancel').addEventListener('click', () => $('profile-form').classList.remove('open'));
+$('pf-save').addEventListener('click', () => {
+  const name = $('pf-name').value.trim(), url = $('pf-url').value.trim();
+  if(!name || !url){ pushToast('Profile needs a name and a broker URL'); return; }
+  state.profiles.push({ id:uid(), name, url, username:$('pf-username').value.trim(), password:$('pf-password').value, tls:$('pf-tls').checked });
+  $('pf-name').value=''; $('pf-url').value=''; $('pf-username').value=''; $('pf-password').value=''; $('pf-tls').checked=false;
+  $('profile-form').classList.remove('open'); renderProfiles();
+  pushToast('Profile saved', 'info');
+});
+$('demo-btn').addEventListener('click', () => { state.activeProfileId=null; state.channels.clear(); state.devices.clear(); renderProfiles(); startDemo(); });
+
+/* ---------------- publish + JSON validation ---------------- */
+$('pub-btn').addEventListener('click', () => {
+  const topic = $('pub-topic').value.trim(), payload = $('pub-payload').value.trim();
+  const jsonMode = $('pub-json-mode').checked;
+  $('json-error').style.display = 'none';
+  if(!topic || !payload) return;
+  if(jsonMode && tryParseJSON(payload) === undefined){ $('json-error').style.display='block'; return; }
+  if(state.mode === 'live' && state.client && state.client.connected) state.client.publish(topic, payload);
+  else handleIncoming(topic, payload);
+  $('pub-payload').value = '';
+});
+
+/* boot */
+startDemo(); renderProfiles(); renderDevices();
+</script>
+</body>
+</html>
