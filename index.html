@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BROKERDUH — Signal Patch Bay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+<style>
+  :root{
+    --bg: #0F1418;
+    --panel: #171F26;
+    --panel-raised: #1D2731;
+    --line: #263140;
+    --amber: #FFB020;
+    --amber-dim: #7A5A18;
+    --teal: #5EEAD4;
+    --teal-dim: #245C53;
+    --red: #FF5C5C;
+    --text: #E7EDF2;
+    --muted: #6B7885;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family: var(--sans);
+    min-height:100vh;
+  }
+  body{
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(255,176,32,0.05), transparent 40%),
+      radial-gradient(circle at 80% 100%, rgba(94,234,212,0.04), transparent 40%);
+  }
+  .wrap{ max-width:1180px; margin:0 auto; padding:28px 20px 60px; }
+
+  /* ---- header / patch bay strip ---- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 20px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; margin-bottom:22px; flex-wrap:wrap; gap:14px;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:36px; height:36px; border-radius:8px; background:var(--panel-raised);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    position:relative;
+  }
+  .brand-mark::after{
+    content:''; width:14px; height:14px; border-radius:50%;
+    background:var(--amber); box-shadow:0 0 12px var(--amber);
+    animation: pulse-dot 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.55; transform:scale(.8);} }
+  .brand h1{
+    font-family:var(--mono); font-size:15px; letter-spacing:.14em; margin:0;
+    text-transform:uppercase; color:var(--text);
+  }
+  .brand span{ display:block; font-size:11px; color:var(--muted); letter-spacing:.05em; margin-top:2px; }
+
+  .status-row{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .stat{ font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .stat b{ color:var(--text); font-weight:500; }
+  .status-pill{
+    display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px;
+    padding:6px 12px; border-radius:20px; border:1px solid var(--line); background:var(--panel-raised);
+  }
+  .status-pill .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .status-pill.live .dot{ background:var(--teal); box-shadow:0 0 8px var(--teal); animation:pulse-dot 1.6s infinite; }
+  .status-pill.demo .dot{ background:var(--amber); box-shadow:0 0 8px var(--amber); animation:pulse-dot 1.6s infinite; }
+
+  .mode-controls{ display:flex; gap:8px; flex-wrap:wrap; }
+  button, input{
+    font-family:var(--mono); font-size:12.5px; border-radius:6px; border:1px solid var(--line);
+    background:var(--panel-raised); color:var(--text); padding:8px 12px; outline:none;
+  }
+  button{ cursor:pointer; transition:.15s border-color, .15s background; }
+  button:hover{ border-color:var(--amber); }
+  button.primary{ background:var(--amber); color:#1A1200; border-color:var(--amber); font-weight:700; }
+  button.primary:hover{ background:#ffc250; }
+  button.ghost{ background:transparent; }
+  input::placeholder{ color:var(--muted); }
+  input:focus, button:focus-visible{ border-color:var(--teal); box-shadow:0 0 0 2px rgba(94,234,212,.15); }
+
+  /* ---- section labels ---- */
+  .section-label{
+    font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); margin:30px 2px 12px; display:flex; align-items:center; gap:10px;
+  }
+  .section-label::after{ content:''; flex:1; height:1px; background:var(--line); }
+
+  /* ---- channel grid ---- */
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px; }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
+    position:relative; overflow:hidden;
+  }
+  .card.offline{ opacity:.5; }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
+  .topic-name{ font-family:var(--mono); font-size:13px; color:var(--text); word-break:break-all; }
+  .topic-tag{ font-family:var(--mono); font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:3px; }
+  .online-dot{ width:9px; height:9px; border-radius:50%; background:var(--teal); flex-shrink:0; margin-top:3px; box-shadow:0 0 6px var(--teal); }
+  .card.offline .online-dot{ background:var(--red); box-shadow:none; animation:none; }
+  .online-dot.live{ animation:pulse-dot 1.8s infinite; }
+
+  svg.trace{ width:100%; height:44px; display:block; margin:8px 0 10px; }
+  .trace path{ fill:none; stroke:var(--amber); stroke-width:1.6; }
+  .trace-glow{ filter: drop-shadow(0 0 4px rgba(255,176,32,.55)); }
+
+  .payload{
+    font-family:var(--mono); font-size:12.5px; background:var(--panel-raised);
+    border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--teal);
+    word-break:break-all; min-height:18px;
+  }
+  .card-meta{ display:flex; justify-content:space-between; margin-top:8px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+
+  /* ---- publish console ---- */
+  .console{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; margin-top:6px;
+  }
+  .console-row{ display:flex; gap:10px; flex-wrap:wrap; }
+  .console-row input{ flex:1; min-width:160px; }
+  .console-row input#pub-topic{ flex:0 0 220px; }
+
+  /* ---- log feed ---- */
+  .log{
+    background:#0B0F13; border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+    font-family:var(--mono); font-size:12px; height:220px; overflow-y:auto; margin-top:6px;
+  }
+  .log-line{ display:flex; gap:10px; padding:2px 0; color:var(--muted); }
+  .log-line .t{ color:var(--muted); flex-shrink:0; }
+  .log-line .top{ color:var(--amber); flex-shrink:0; }
+  .log-line .pay{ color:var(--text); }
+  .log::-webkit-scrollbar{ width:8px; }
+  .log::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+  footer{ text-align:center; margin-top:34px; color:var(--muted); font-family:var(--mono); font-size:11px; }
+  footer a{ color:var(--teal); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <h1>BROKERDUH</h1>
+        <span>MQTT pub/sub patch bay</span>
+      </div>
+    </div>
+    <div class="status-row">
+      <div class="stat">MSGS/MIN <b id="stat-rate">0</b></div>
+      <div class="stat">DEVICES <b id="stat-devices">0</b></div>
+      <div class="status-pill demo" id="status-pill"><span class="dot"></span><span id="status-text">DEMO MODE</span></div>
+    </div>
+    <div class="mode-controls">
+      <input id="broker-url" placeholder="wss://broker-host:9001" style="width:220px;" />
+      <button class="primary" id="connect-btn">Connect broker</button>
+      <button class="ghost" id="demo-btn">Use demo mode</button>
+    </div>
+  </header>
+
+  <div class="section-label">Live channels</div>
+  <div class="grid" id="channel-grid"></div>
+
+  <div class="section-label">Publish</div>
+  <div class="console">
+    <div class="console-row">
+      <input id="pub-topic" placeholder="topic, e.g. devices/eyebot/commands" />
+      <input id="pub-payload" placeholder="payload, e.g. blink" />
+      <button class="primary" id="pub-btn">Send →</button>
+    </div>
+  </div>
+
+  <div class="section-label">Traffic log</div>
+  <div class="log" id="log"></div>
+
+  <footer>
+    BROKERDUH · point it at a real Mosquitto/EMQX broker's WebSocket listener, or leave it in demo mode · <a href="https://github.com/" target="_blank">github.com/&lt;you&gt;/brokerduh</a>
+  </footer>
+</div>
+
+<script>
+/* ---------------------------------------------------------
+   BROKERDUH dashboard
+   Two modes:
+   - DEMO: simulates devices publishing locally (no server needed)
+   - LIVE: connects to a real MQTT broker over WebSocket via mqtt.js
+   --------------------------------------------------------- */
+
+const state = {
+  mode: 'demo',          // 'demo' | 'live'
+  client: null,
+  channels: new Map(),   // topic -> { history: [values], lastPayload, lastSeen, online }
+  msgTimestamps: [],
+};
+
+const grid = document.getElementById('channel-grid');
+const logEl = document.getElementById('log');
+const statusPill = document.getElementById('status-pill');
+const statusText = document.getElementById('status-text');
+const statDevices = document.getElementById('stat-devices');
+const statRate = document.getElementById('stat-rate');
+
+function nowLabel(){
+  const d = new Date();
+  return d.toTimeString().split(' ')[0];
+}
+
+function logMessage(topic, payload){
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="t">${nowLabel()}</span><span class="top">${escapeHtml(topic)}</span><span class="pay">${escapeHtml(payload)}</span>`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  while(logEl.children.length > 200){ logEl.removeChild(logEl.firstChild); }
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+function buildTracePath(history){
+  // history: array of 0..1 normalized values -> svg path across width 240, height 40
+  const w = 240, h = 40, n = history.length;
+  if(n === 0) return `M0,${h/2} L${w},${h/2}`;
+  const step = w / (n - 1 || 1);
+  return history.map((v,i) => `${i===0?'M':'L'}${(i*step).toFixed(1)},${(h - v*h).toFixed(1)}`).join(' ');
+}
+
+function ensureChannel(topic){
+  if(!state.channels.has(topic)){
+    state.channels.set(topic, { history:[0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5], lastPayload:'—', lastSeen:Date.now(), online:true, count:0 });
+    renderGrid();
+  }
+  return state.channels.get(topic);
+}
+
+function renderGrid(){
+  grid.innerHTML = '';
+  const topics = Array.from(state.channels.keys()).sort();
+  statDevices.textContent = topics.length;
+  topics.forEach(topic => {
+    const ch = state.channels.get(topic);
+    const offline = (Date.now() - ch.lastSeen) > 8000;
+    ch.online = !offline;
+    const card = document.createElement('div');
+    card.className = 'card' + (offline ? ' offline' : '');
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="topic-name">${escapeHtml(topic)}</div>
+          <div class="topic-tag">${offline ? 'no signal' : 'subscribed'}</div>
+        </div>
+        <div class="online-dot ${offline ? '' : 'live'}"></div>
+      </div>
+      <svg class="trace" viewBox="0 0 240 40" preserveAspectRatio="none">
+        <path class="trace-glow" d="${buildTracePath(ch.history)}"></path>
+      </svg>
+      <div class="payload">${escapeHtml(ch.lastPayload)}</div>
+      <div class="card-meta">
+        <span>${ch.count} msgs</span>
+        <span>${offline ? '' : 'last: ' + timeAgo(ch.lastSeen)}</span>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function timeAgo(ts){
+  const s = Math.floor((Date.now()-ts)/1000);
+  if(s < 2) return 'now';
+  return s + 's ago';
+}
+
+function handleIncoming(topic, payload){
+  const ch = ensureChannel(topic);
+  ch.lastPayload = payload;
+  ch.lastSeen = Date.now();
+  ch.count++;
+  const num = parseFloat(payload);
+  const val = isNaN(num) ? Math.random() : Math.max(0, Math.min(1, (num % 100) / 100));
+  ch.history.push(val);
+  if(ch.history.length > 24) ch.history.shift();
+  state.msgTimestamps.push(Date.now());
+  logMessage(topic, payload);
+  renderGrid();
+}
+
+// ---- msgs/min rate ticker ----
+setInterval(() => {
+  const cutoff = Date.now() - 60000;
+  state.msgTimestamps = state.msgTimestamps.filter(t => t > cutoff);
+  statRate.textContent = state.msgTimestamps.length;
+  renderGrid(); // refresh online/offline + time-ago labels
+}, 1000);
+
+// ---------------------------------------------------------
+// DEMO MODE — simulated devices, no server required
+// ---------------------------------------------------------
+let demoTimer = null;
+const demoDevices = [
+  { topic: 'devices/eyebot/telemetry',       gen: () => (20 + Math.random()*6).toFixed(1) + 'C' },
+  { topic: 'devices/paperplane/telemetry',   gen: () => (Math.random()*100).toFixed(0) + '% batt' },
+  { topic: 'devices/flightctrl/pid',         gen: () => 'pitch:' + (Math.random()*10-5).toFixed(2) },
+  { topic: 'devices/eyebot/status',          gen: () => Math.random() > 0.15 ? 'ok' : 'lag' },
+];
+
+function startDemo(){
+  stopLive();
+  state.mode = 'demo';
+  statusPill.className = 'status-pill demo';
+  statusText.textContent = 'DEMO MODE';
+  demoDevices.forEach(d => ensureChannel(d.topic));
+  demoTimer = setInterval(() => {
+    const d = demoDevices[Math.floor(Math.random()*demoDevices.length)];
+    handleIncoming(d.topic, d.gen());
+  }, 900);
+}
+function stopDemo(){ if(demoTimer){ clearInterval(demoTimer); demoTimer = null; } }
+
+// ---------------------------------------------------------
+// LIVE MODE — real broker over MQTT-over-WebSocket
+// ---------------------------------------------------------
+function connectLive(url){
+  stopDemo();
+  if(state.client){ try{ state.client.end(true); }catch(e){} }
+  state.channels.clear();
+  logMessage('system', 'connecting to ' + url + ' ...');
+  const client = mqtt.connect(url, { connectTimeout: 6000, reconnectPeriod: 2000 });
+  state.client = client;
+  state.mode = 'live';
+
+  client.on('connect', () => {
+    statusPill.className = 'status-pill live';
+    statusText.textContent = 'LIVE — CONNECTED';
+    logMessage('system', 'connected. subscribing to #');
+    client.subscribe('#');
+  });
+  client.on('message', (topic, message) => handleIncoming(topic, message.toString()));
+  client.on('error', (err) => { logMessage('system', 'error: ' + err.message); });
+  client.on('close', () => {
+    statusText.textContent = 'DISCONNECTED';
+    statusPill.className = 'status-pill';
+  });
+}
+function stopLive(){ if(state.client){ try{ state.client.end(true); }catch(e){} state.client = null; } }
+
+// ---- wire up controls ----
+document.getElementById('demo-btn').addEventListener('click', () => { state.channels.clear(); startDemo(); });
+document.getElementById('connect-btn').addEventListener('click', () => {
+  const url = document.getElementById('broker-url').value.trim();
+  if(!url){ logMessage('system', 'enter a broker websocket url first, e.g. wss://host:9001'); return; }
+  connectLive(url);
+});
+document.getElementById('pub-btn').addEventListener('click', () => {
+  const topic = document.getElementById('pub-topic').value.trim();
+  const payload = document.getElementById('pub-payload').value.trim();
+  if(!topic || !payload) return;
+  if(state.mode === 'live' && state.client && state.client.connected){
+    state.client.publish(topic, payload);
+  } else {
+    handleIncoming(topic, payload); // simulate locally in demo mode
+  }
+  document.getElementById('pub-payload').value = '';
+});
+
+// boot in demo mode
+startDemo();
+</script>
+</body>
+</html>
