@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    container_name: brokerduh-broker
+    ports:
+      - "1883:1883"   # raw MQTT — point your ESP32/ESP8266 firmware here
+      - "9001:9001"   # MQTT-over-WebSocket — point index.html here
+    volumes:
+      - ./broker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - broker-data:/mosquitto/data
+    restart: unless-stopped
+
+volumes:
+  broker-data:
