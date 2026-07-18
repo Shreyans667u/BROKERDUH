@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BROKERDUH — Signal Patch Bay</title>
+<meta name="theme-color" content="#0F1418" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0F1418; --panel:#171F26; --panel-raised:#1D2731; --line:#263140;
+    --amber:#FFB020; --teal:#5EEAD4; --red:#FF5C5C; --text:#E7EDF2; --muted:#6B7885;
+    --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif;
+  }
+  html.light{
+    --bg:#F4F1EA; --panel:#FFFFFF; --panel-raised:#EDE9DF; --line:#DDD6C6;
+    --amber:#B5720A; --teal:#0E8C7C; --red:#C23B3B; --text:#1D1B16; --muted:#7A7362;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; transition:background .25s, color .25s; }
+  body{ background-image: radial-gradient(circle at 20% 0%, rgba(255,176,32,0.05), transparent 40%), radial-gradient(circle at 80% 100%, rgba(94,234,212,0.04), transparent 40%); }
+  .wrap{ max-width:1240px; margin:0 auto; padding:20px 16px 60px; }
+
+  header{ display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:18px; flex-wrap:wrap; gap:12px; transition:.25s; }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{ width:34px; height:34px; border-radius:8px; background:var(--panel-raised); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; position:relative; flex-shrink:0; }
+  .brand-mark::after{ content:''; width:13px; height:13px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px var(--amber); animation:pulse-dot 2.2s ease-in-out infinite; }
+  @keyframes pulse-dot{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.55; transform:scale(.8);} }
+  .brand h1{ font-family:var(--mono); font-size:14px; letter-spacing:.14em; margin:0; text-transform:uppercase; }
+  .brand span{ display:block; font-size:10.5px; color:var(--muted); letter-spacing:.05em; margin-top:2px; }
+  .status-row{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .stat{ font-family:var(--mono); font-size:11.5px; color:var(--muted); }
+  .stat b{ color:var(--text); font-weight:500; }
+  .status-pill{ display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:11.5px; padding:6px 11px; border-radius:20px; border:1px solid var(--line); background:var(--panel-raised); }
+  .status-pill .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .status-pill.live .dot{ background:var(--teal); box-shadow:0 0 8px var(--teal); animation:pulse-dot 1.6s infinite; }
+  .status-pill.demo .dot{ background:var(--amber); box-shadow:0 0 8px var(--amber); animation:pulse-dot 1.6s infinite; }
+  .icon-btn{ width:38px; height:38px; display:flex; align-items:center; justify-content:center; padding:0; font-size:16px; }
+
+  button, input, select{ font-family:var(--mono); font-size:12.5px; border-radius:6px; border:1px solid var(--line); background:var(--panel-raised); color:var(--text); padding:9px 11px; outline:none; transition:.15s border-color, .15s background, .15s transform; }
+  button{ cursor:pointer; min-height:38px; }
+  button:hover{ border-color:var(--amber); }
+  button:active{ transform:scale(.96); }
+  button.primary{ background:var(--amber); color:#1A1200; border-color:var(--amber); font-weight:700; }
+  button.primary:hover{ background:#ffc250; }
+  button.ghost{ background:transparent; }
+  button.danger{ color:var(--red); border-color:var(--red); background:transparent; }
+  button.small{ padding:6px 9px; font-size:11px; min-height:auto; }
+  input::placeholder{ color:var(--muted); }
+  input:focus, select:focus, button:focus-visible{ border-color:var(--teal); box-shadow:0 0 0 2px rgba(94,234,212,.15); }
+
+  .section-label{ font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:26px 2px 12px; display:flex; align-items:center; gap:10px; }
+  .section-label::after{ content:''; flex:1; height:1px; background:var(--line); }
+  .section-label .count{ color:var(--amber); }
+  .hint{ font-size:11px; color:var(--muted); line-height:1.5; margin-top:6px; }
+  .search-bar{ display:flex; gap:8px; margin-bottom:16px; }
+  .search-bar input{ flex:1; }
+
+  .profile-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:stretch; }
+  .profile-chip{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; transition:.2s; }
+  .profile-chip.active{ border-color:var(--teal); }
+  .profile-chip .name{ font-family:var(--mono); font-size:12px; }
+  .box{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:10px; display:none; }
+  .box.open{ display:block; animation:fade-in .18s ease; }
+  @keyframes fade-in{ from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);} }
+  .form-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
+  .form-grid input, .form-grid select{ width:100%; }
+  .checkbox-row{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .checkbox-row input{ width:auto; }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+  .device-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .device-card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; transition:.2s opacity, .2s transform; }
+  .device-card:hover{ transform:translateY(-2px); }
+  .device-card.muted{ opacity:.5; }
+  .device-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .device-icon{ font-size:16px; background:transparent; border:none; width:28px; padding:0; text-align:center; }
+  .device-alias{ font-family:var(--mono); font-size:13px; background:transparent; border:none; color:var(--text); padding:0; width:100%; }
+  .device-actions{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .device-meta{ font-size:10.5px; color:var(--muted); font-family:var(--mono); margin-top:6px; }
+
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; position:relative; overflow:hidden; transition:.2s transform,.2s opacity,.2s box-shadow; cursor:grab; }
+  .card:hover{ transform:translateY(-2px); box-shadow:0 8px 20px rgba(0,0,0,.25); }
+  .card.dragging{ opacity:.4; }
+  .card.offline{ opacity:.5; }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px; }
+  .topic-name{ font-family:var(--mono); font-size:12.5px; word-break:break-all; cursor:pointer; }
+  .topic-name:hover{ color:var(--amber); }
+  .topic-tag{ font-family:var(--mono); font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:3px; }
+  .online-dot{ width:9px; height:9px; border-radius:50%; background:var(--teal); flex-shrink:0; margin-top:3px; box-shadow:0 0 6px var(--teal); }
+  .card.offline .online-dot{ background:var(--red); box-shadow:none; animation:none; }
+  .online-dot.live{ animation:pulse-dot 1.8s infinite; }
+  canvas.trace{ width:100%; height:44px; display:block; margin:6px 0 8px; cursor:pointer; }
+  .payload{ font-family:var(--mono); font-size:12px; background:var(--panel-raised); border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--teal); word-break:break-all; min-height:18px; white-space:pre-wrap; max-height:80px; overflow-y:auto; }
+  .card-meta{ display:flex; justify-content:space-between; margin-top:8px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+
+  .control-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .control-card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; cursor:grab; transition:.2s transform; }
+  .control-card:hover{ transform:translateY(-2px); }
+  .control-card.dragging{ opacity:.4; }
+  .control-label{ font-family:var(--mono); font-size:12.5px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+  .control-label button{ padding:3px 6px; font-size:10px; min-height:auto; }
+  .switch{ position:relative; width:52px; height:30px; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .slider-track{ position:absolute; cursor:pointer; inset:0; background:var(--panel-raised); border:1px solid var(--line); border-radius:30px; transition:.2s; }
+  .slider-track::before{ content:''; position:absolute; height:22px; width:22px; left:3px; bottom:3px; background:var(--muted); border-radius:50%; transition:.2s; }
+  input:checked + .slider-track{ background:#245C53; border-color:var(--teal); }
+  input:checked + .slider-track::before{ transform:translateX(22px); background:var(--teal); box-shadow:0 0 6px var(--teal); }
+  .range-row{ display:flex; align-items:center; gap:10px; }
+  .range-row input[type=range]{ flex:1; accent-color:var(--amber); background:transparent; padding:0; }
+  .range-val{ font-family:var(--mono); font-size:12px; color:var(--amber); width:44px; text-align:right; }
+  .big-btn{ width:100%; padding:14px; font-size:13px; }
+  .cam-frame{ width:100%; border-radius:8px; border:1px solid var(--line); background:#0B0F13; display:block; min-height:120px; object-fit:cover; }
+  .cam-error{ font-family:var(--mono); font-size:11px; color:var(--muted); padding:10px; text-align:center; }
+
+  .console{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:6px; }
+  .console-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .console-row input{ flex:1; min-width:140px; }
+  .console-row input#pub-topic{ flex:0 0 200px; }
+  .json-error{ color:var(--red); font-family:var(--mono); font-size:11px; margin-top:8px; display:none; }
+
+  .log-controls{ display:flex; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .log-controls input{ flex:1; min-width:180px; }
+  .log{ background:#0B0F13; border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-family:var(--mono); font-size:11.5px; height:220px; overflow-y:auto; }
+  html.light .log{ background:#EDE9DF; }
+  .log-line{ display:flex; gap:10px; padding:3px 0; color:var(--muted); border-bottom:1px solid rgba(255,255,255,0.03); flex-wrap:wrap; }
+  .log-line .t{ color:var(--muted); flex-shrink:0; width:70px; }
+  .log-line .top{ color:var(--amber); flex-shrink:0; }
+  .log-line .pay{ color:var(--text); word-break:break-all; }
+  .log::-webkit-scrollbar{ width:8px; } .log::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+  .rule-list{ display:flex; flex-direction:column; gap:8px; }
+  .rule-item{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .rule-text{ font-family:var(--mono); font-size:11.5px; }
+  .rule-text b{ color:var(--amber); }
+
+  /* visual automation canvas */
+  .automation-canvas{ position:relative; background:var(--panel); border:1px solid var(--line); border-radius:10px; min-height:260px; overflow:auto; padding:10px; }
+  .automation-canvas svg{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  .node{ position:absolute; width:190px; background:var(--panel-raised); border:1px solid var(--line); border-radius:8px; padding:10px; cursor:grab; font-family:var(--mono); font-size:11px; user-select:none; }
+  .node.trigger{ border-left:3px solid var(--amber); }
+  .node.action{ border-left:3px solid var(--teal); }
+  .node b{ display:block; font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:4px; }
+  .node .del-node{ position:absolute; top:4px; right:6px; cursor:pointer; color:var(--muted); font-size:12px; }
+
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(5,8,10,.75); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .modal-backdrop.open{ display:flex; }
+  .modal{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; width:100%; max-width:640px; max-height:90vh; overflow-y:auto; }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .modal-head h3{ font-family:var(--mono); font-size:13px; margin:0; word-break:break-all; }
+  canvas#modal-chart{ width:100%; height:220px; background:#0B0F13; border-radius:8px; border:1px solid var(--line); }
+
+  .lock-screen{ position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:100; flex-direction:column; gap:14px; padding:20px; text-align:center; }
+  .lock-screen input{ width:220px; text-align:center; font-size:14px; padding:12px; }
+  .lock-screen .brand-mark{ margin-bottom:6px; }
+
+  #gps-map{ height:280px; border-radius:10px; border:1px solid var(--line); }
+
+  .toast-stack{ position:fixed; top:16px; right:16px; display:flex; flex-direction:column; gap:8px; z-index:80; max-width:320px; }
+  .toast{ background:var(--panel-raised); border:1px solid var(--red); border-left:4px solid var(--red); border-radius:8px; padding:10px 12px; font-family:var(--mono); font-size:11.5px; box-shadow:0 6px 18px rgba(0,0,0,.4); animation:slide-in .2s ease; }
+  .toast.info{ border-color:var(--teal); border-left-color:var(--teal); }
+  @keyframes slide-in{ from{ transform:translateX(20px); opacity:0;} to{ transform:translateX(0); opacity:1;} }
+
+  footer{ text-align:center; margin-top:34px; color:var(--muted); font-family:var(--mono); font-size:11px; }
+  footer a{ color:var(--teal); text-decoration:none; }
+  .kbd-hint{ font-family:var(--mono); font-size:10.5px; color:var(--muted); text-align:center; margin-top:6px; }
+  .kbd-hint kbd{ background:var(--panel-raised); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+
+  @media (max-width: 640px){
+    header{ flex-direction:column; align-items:stretch; }
+    .status-row{ justify-content:space-between; }
+    .console-row input#pub-topic{ flex:1 1 100%; }
+    .grid, .device-grid, .control-grid{ grid-template-columns:1fr; }
+    .modal{ padding:14px; }
+    .node{ width:150px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="lock-screen" id="lock-screen" style="display:none;">
+  <div class="brand-mark"></div>
+  <div style="font-family:var(--mono); font-size:13px; letter-spacing:.1em;">BROKERDUH LOCKED</div>
+  <input type="password" id="lock-input" placeholder="Dashboard password" />
+  <button class="primary" id="lock-submit">Unlock</button>
+  <div class="hint" style="max-width:320px;">Demo-grade lock only — not real account security.</div>
+</div>
+
+<div class="wrap" id="app">
+
+  <header>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div><h1>BROKERDUH</h1><span>MQTT pub/sub patch bay</span></div>
+    </div>
+    <div class="status-row">
+      <div class="stat">MSGS/MIN <b id="stat-rate">0</b></div>
+      <div class="stat">DEVICES <b id="stat-devices">0</b></div>
+      <div class="status-pill demo" id="status-pill"><span class="dot"></span><span id="status-text">DEMO MODE</span></div>
+      <button class="icon-btn" id="theme-toggle" title="Toggle light/dark theme">🌙</button>
+    </div>
+  </header>
+
+  <div class="search-bar">
+    <input id="global-search" placeholder="🔎 Search devices &amp; channels... ( / )" />
+    <button class="ghost" id="config-export-btn" title="Export configuration">⬇️ Export config</button>
+    <button class="ghost" id="config-import-btn" title="Import configuration">⬆️ Import config</button>
+    <input type="file" id="config-import-file" accept="application/json" style="display:none;" />
+  </div>
+
+  <div class="section-label">Broker profiles</div>
+  <div class="profile-row" id="profile-row"></div>
+  <div class="box" id="profile-form">
+    <div class="form-grid">
+      <input id="pf-name" placeholder="Profile name (e.g. Home Lab)" />
+      <input id="pf-url" placeholder="wss://host:9001" />
+      <input id="pf-username" placeholder="Username (optional)" />
+      <input id="pf-password" type="password" placeholder="Password (optional)" />
+    </div>
+    <div class="checkbox-row" style="margin-top:10px;"><input type="checkbox" id="pf-tls" /><label for="pf-tls">Force TLS (rewrites url to wss://)</label></div>
+    <div class="hint">Mutual-TLS (client certs) isn't possible from in-page JS — put a reverse proxy in front of the broker if you need it.</div>
+    <div class="btn-row"><button class="primary" id="pf-save">Save profile</button><button class="ghost" id="pf-cancel">Cancel</button></div>
+  </div>
+  <div class="btn-row">
+    <button id="pf-new-btn">+ New profile</button>
+    <button class="ghost" id="demo-btn">Use demo mode</button>
+    <button class="ghost" id="qr-btn">📱 QR setup</button>
+  </div>
+
+  <div class="section-label">🔔 Notifications & security</div>
+  <div class="btn-row">
+    <button id="lock-toggle-btn">🔒 Set dashboard password</button>
+    <button class="ghost" id="export-csv-btn">💾 Export history (CSV)</button>
+    <button class="ghost" id="export-json-btn">💾 Export history (JSON)</button>
+    <button class="ghost" id="pwa-install-btn" style="display:none;">📲 Install app</button>
+  </div>
+  <div class="box" id="lock-setup">
+    <div class="form-grid"><input id="lock-new-pass" type="password" placeholder="New dashboard password" /></div>
+    <div class="hint">Gates the page behind one shared password held in memory. Not real multi-user auth.</div>
+    <div class="btn-row"><button class="primary" id="lock-save">Enable lock</button><button class="ghost" id="lock-disable">Disable lock</button></div>
+  </div>
+
+  <div class="section-label">🏠 Devices <span class="count" id="device-count-label"></span></div>
+  <div class="device-grid" id="device-grid"></div>
+
+  <div class="section-label">📱 Controls <span class="hint" style="margin:0;">(drag to reorder)</span></div>
+  <div class="control-grid" id="control-grid"></div>
+  <div class="btn-row"><button id="control-new-btn">+ Add control</button></div>
+  <div class="box" id="control-form">
+    <div class="form-grid">
+      <input id="ctl-label" placeholder="Label (e.g. Living Room Light)" />
+      <input id="ctl-topic" placeholder="Command topic (or stream URL for camera)" />
+      <select id="ctl-type"><option value="toggle">Toggle switch</option><option value="slider">Slider</option><option value="button">Momentary button</option><option value="camera">📹 Camera stream (ESP32-CAM)</option></select>
+    </div>
+    <div class="form-grid" style="margin-top:8px;">
+      <input id="ctl-on" placeholder="ON / press payload (e.g. on)" />
+      <input id="ctl-off" placeholder="OFF payload (toggle only)" />
+      <input id="ctl-min" placeholder="Slider min (default 0)" />
+      <input id="ctl-max" placeholder="Slider max (default 100)" />
+    </div>
+    <div class="hint">Camera type: paste the ESP32-CAM's MJPEG stream URL (usually <code>http://cam-ip:81/stream</code>) into the topic field. If this dashboard is served over https, an http:// stream may get blocked as mixed content — serve both over the same protocol.</div>
+    <div class="btn-row"><button class="primary" id="ctl-save">Add control</button><button class="ghost" id="ctl-cancel">Cancel</button></div>
+  </div>
+
+  <div class="section-label">🗺️ GPS tracking</div>
+  <div id="gps-map"></div>
+  <div class="hint">Demo mode simulates a wandering position. In live mode, publish JSON like <code>{"lat":37.77,"lon":-122.41}</code> to <code>devices/&lt;id&gt;/gps</code> and the marker updates automatically.</div>
+
+  <div class="section-label">🤖 Voice commands</div>
+  <div class="btn-row">
+    <button class="primary" id="mic-btn">🎤 Listen</button>
+    <button class="ghost" id="voice-new-btn">+ Add voice command</button>
+  </div>
+  <div class="hint" id="voice-support-hint"></div>
+  <div class="box" id="voice-form">
+    <div class="form-grid">
+      <input id="vc-phrase" placeholder='Phrase contains (e.g. "turn on the light")' />
+      <input id="vc-topic" placeholder="Topic to publish to" />
+      <input id="vc-payload" placeholder="Payload to send" />
+    </div>
+    <div class="btn-row"><button class="primary" id="vc-save">Save command</button><button class="ghost" id="vc-cancel">Cancel</button></div>
+  </div>
+  <div class="rule-list" id="voice-rule-list" style="margin-top:10px;"></div>
+
+  <div class="section-label">⚡ Visual automation editor</div>
+  <div class="btn-row"><button id="rule-new-btn">+ Add rule</button></div>
+  <div class="box" id="rule-form">
+    <div class="form-grid">
+      <input id="rl-topic" placeholder="Watch topic (e.g. devices/eyebot/telemetry)" />
+      <select id="rl-op"><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="eq">=</option></select>
+      <input id="rl-value" placeholder="Value (e.g. 30)" />
+    </div>
+    <div class="form-grid" style="margin-top:8px;">
+      <input id="rl-action-topic" placeholder="Then publish to topic" />
+      <input id="rl-action-payload" placeholder="Payload (e.g. on)" />
+    </div>
+    <div class="hint">Example: temp topic &gt; 30 → publish "on" to the fan's command topic. Nodes below are draggable — arrange your automations visually.</div>
+    <div class="btn-row"><button class="primary" id="rl-save">Save rule</button><button class="ghost" id="rl-cancel">Cancel</button></div>
+  </div>
+  <div class="automation-canvas" id="automation-canvas"><svg id="automation-svg"></svg></div>
+
+  <div class="section-label">📊 Live channels <span class="hint" style="margin:0;">(drag to reorder · click a card for history + CSV)</span></div>
+  <div class="grid" id="channel-grid"></div>
+
+  <div class="section-label">Publish</div>
+  <div class="console">
+    <div class="console-row">
+      <input id="pub-topic" placeholder="topic, e.g. devices/eyebot/commands" />
+      <input id="pub-payload" placeholder="payload" />
+      <div class="checkbox-row"><input type="checkbox" id="pub-json-mode" /><label for="pub-json-mode">JSON</label></div>
+      <button class="primary" id="pub-btn">Send →</button>
+    </div>
+    <div class="json-error" id="json-error">Invalid JSON — fix before sending.</div>
+  </div>
+
+  <div class="section-label">💾 Message history</div>
+  <div class="log-controls"><input id="search-input" placeholder="search topic or payload..." /><button class="ghost small" id="clear-history">Clear history</button></div>
+  <div class="log" id="log"></div>
+
+  <footer>
+    BROKERDUH · point it at a real Mosquitto/EMQX broker's WebSocket listener, or leave it in demo mode · <a href="https://github.com/" target="_blank">github.com/&lt;you&gt;/brokerduh</a>
+    <div class="kbd-hint">Shortcuts: <kbd>/</kbd> search · <kbd>t</kbd> theme · <kbd>l</kbd> lock · <kbd>Esc</kbd> close dialogs</div>
+  </footer>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="ghost small" id="modal-close">Close</button></div>
+    <canvas id="modal-chart" width="600" height="220"></canvas>
+    <div class="form-grid" style="margin-top:12px;"><input id="modal-alert-min" placeholder="Alert min (optional)" /><input id="modal-alert-max" placeholder="Alert max (optional)" /></div>
+    <div class="btn-row"><button class="primary small" id="modal-save-alert">Save alert thresholds</button><button class="ghost small" id="modal-export-csv">Export this channel's history (CSV)</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="qr-backdrop">
+  <div class="modal" style="max-width:340px; text-align:center;">
+    <div class="modal-head"><h3>Scan to open with this broker</h3><button class="ghost small" id="qr-close">Close</button></div>
+    <canvas id="qr-canvas" width="240" height="240" style="margin:0 auto; display:block;"></canvas>
+    <div class="hint" id="qr-hint" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+const state = {
+  mode:'demo', client:null, activeProfileId:null,
+  profiles:[], devices:new Map(), channels:new Map(),
+  history:[], searchQuery:'', globalSearch:'', msgTimestamps:[], modalTopic:null,
+  controls:[], voiceRules:[], automationRules:[],
+  lock:{ enabled:false, password:'', unlocked:true },
+  listening:false, theme:'dark', gpsMarker:null, gpsTrail:[], gpsMap:null, gpsPolyline:null,
+  draggingNode:null, deferredInstallPrompt:null,
+};
+
+const $ = id => document.getElementById(id);
+const grid=$('channel-grid'), deviceGrid=$('device-grid'), logEl=$('log'), controlGrid=$('control-grid');
+const statusPill=$('status-pill'), statusText=$('status-text'), statDevices=$('stat-devices'), statRate=$('stat-rate');
+const toastStack=$('toast-stack');
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function nowLabel(){ return new Date().toTimeString().split(' ')[0]; }
+function escapeHtml(str){ return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
+function timeAgo(ts){ const s = Math.floor((Date.now()-ts)/1000); return s<2 ? 'now' : s+'s ago'; }
+function tryParseJSON(str){ try{ return JSON.parse(str); }catch(e){ return undefined; } }
+function prettyPayload(payload){ const p = tryParseJSON(payload); return p !== undefined ? JSON.stringify(p,null,2) : payload; }
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function pushToast(message, type){
+  const el = document.createElement('div');
+  el.className = 'toast' + (type==='info' ? ' info' : '');
+  el.textContent = message;
+  toastStack.appendChild(el);
+  setTimeout(() => el.remove(), 6000);
+}
+function downloadBlob(content, filename, type){
+  const blob = new Blob([content], {type}); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
+
+/* ---------------- theme ---------------- */
+function applyTheme(){
+  document.documentElement.className = state.theme === 'light' ? 'light' : '';
+  $('theme-toggle').textContent = state.theme === 'light' ? '☀️' : '🌙';
+  renderChannelGrid();
+}
+$('theme-toggle').addEventListener('click', () => { state.theme = state.theme === 'light' ? 'dark' : 'light'; applyTheme(); });
+
+/* ---------------- keyboard shortcuts ---------------- */
+document.addEventListener('keydown', e => {
+  const inInput = ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(e.key === '/' && !inInput){ e.preventDefault(); $('global-search').focus(); }
+  else if(e.key === 't' && !inInput){ state.theme = state.theme === 'light' ? 'dark' : 'light'; applyTheme(); }
+  else if(e.key === 'l' && !inInput){ $('lock-setup').classList.toggle('open'); }
+  else if(e.key === 'Escape'){ $('modal-backdrop').classList.remove('open'); $('qr-backdrop').classList.remove('open'); }
+});
+
+/* ---------------- global search ---------------- */
+$('global-search').addEventListener('input', e => {
+  state.globalSearch = e.target.value.toLowerCase();
+  document.querySelectorAll('#channel-grid .card').forEach(c => { c.style.display = c.dataset.searchtext.includes(state.globalSearch) ? '' : 'none'; });
+  document.querySelectorAll('#device-grid .device-card').forEach(c => { c.style.display = c.dataset.searchtext.includes(state.globalSearch) ? '' : 'none'; });
+});
+
+/* ---------------- lock screen ---------------- */
+function applyLockUI(){ $('lock-screen').style.display = (state.lock.enabled && !state.lock.unlocked) ? 'flex' : 'none'; }
+$('lock-toggle-btn').addEventListener('click', () => $('lock-setup').classList.toggle('open'));
+$('lock-save').addEventListener('click', () => {
+  const pass = $('lock-new-pass').value;
+  if(!pass){ pushToast('Enter a password first'); return; }
+  state.lock = { enabled:true, password:pass, unlocked:false };
+  $('lock-new-pass').value=''; $('lock-setup').classList.remove('open');
+  applyLockUI(); pushToast('Dashboard locked. Reload to test it.', 'info');
+});
+$('lock-disable').addEventListener('click', () => { state.lock = { enabled:false, password:'', unlocked:true }; applyLockUI(); pushToast('Lock disabled', 'info'); });
+$('lock-submit').addEventListener('click', () => {
+  if($('lock-input').value === state.lock.password){ state.lock.unlocked = true; applyLockUI(); }
+  else pushToast('Wrong password');
+});
+
+/* ---------------- device management ---------------- */
+function deviceIcon(alias){
+  const a = alias.toLowerCase();
+  if(a.includes('cam')) return '📷'; if(a.includes('plane')||a.includes('drone')) return '✈️';
+  if(a.includes('eye')||a.includes('bot')) return '🤖'; if(a.includes('gps')||a.includes('car')||a.includes('rover')) return '🚗';
+  if(a.includes('light')||a.includes('lamp')) return '💡'; if(a.includes('fan')) return '🌀';
+  return '📟';
+}
+function deviceIdFromTopic(topic){ const parts = topic.split('/'); return (parts[0]==='devices' && parts[1]) ? parts[1] : null; }
+function ensureDevice(id){
+  const existed = state.devices.has(id);
+  if(!existed) state.devices.set(id, { alias:id, lastSeen:Date.now(), muted:false, wasOffline:false, icon:deviceIcon(id) });
+  const d = state.devices.get(id); d.lastSeen = Date.now();
+  if(d.wasOffline){ d.wasOffline=false; if(!d.muted) pushToast((d.alias||id) + ' is back online', 'info'); }
+  return d;
+}
+function renderDevices(){
+  deviceGrid.innerHTML='';
+  $('device-count-label').textContent = '(' + state.devices.size + ')';
+  statDevices.textContent = state.devices.size;
+  Array.from(state.devices.entries()).sort().forEach(([id,d]) => {
+    const offline = (Date.now() - d.lastSeen) > 8000;
+    if(offline && !d.wasOffline){ d.wasOffline = true; if(!d.muted) pushToast('⚠ ' + (d.alias||id) + ' went offline'); }
+    const card = document.createElement('div');
+    card.className = 'device-card' + (d.muted ? ' muted' : '');
+    card.dataset.searchtext = (id + ' ' + d.alias).toLowerCase();
+    card.innerHTML = `
+      <div class="device-top">
+        <input class="device-icon" value="${d.icon}" data-icon="${id}" maxlength="2" />
+        <input class="device-alias" value="${escapeHtml(d.alias)}" data-id="${id}" />
+        <span class="online-dot ${offline ? '' : 'live'}" style="${offline ? 'background:var(--red);box-shadow:none;' : ''}"></span>
+      </div>
+      <div class="device-meta">${id} · ${offline ? 'offline' : timeAgo(d.lastSeen)}</div>
+      <div class="device-actions">
+        <button class="small" data-mute="${id}">${d.muted ? 'Unmute' : 'Mute alerts'}</button>
+        <button class="small danger" data-remove="${id}">Remove</button>
+      </div>`;
+    deviceGrid.appendChild(card);
+  });
+  deviceGrid.querySelectorAll('.device-alias').forEach(inp => inp.addEventListener('change', e => { state.devices.get(e.target.dataset.id).alias = e.target.value; }));
+  deviceGrid.querySelectorAll('.device-icon').forEach(inp => inp.addEventListener('change', e => { state.devices.get(e.target.dataset.icon).icon = e.target.value; }));
+  deviceGrid.querySelectorAll('[data-mute]').forEach(btn => btn.addEventListener('click', () => { const d=state.devices.get(btn.dataset.mute); d.muted=!d.muted; renderDevices(); }));
+  deviceGrid.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', () => { state.devices.delete(btn.dataset.remove); renderDevices(); }));
+}
+
+function metricMeta(topic){
+  const t = topic.toLowerCase();
+  if(t.includes('temp')) return { icon:'🌡️', unit:'°C' };
+  if(t.includes('humid')) return { icon:'💧', unit:'%' };
+  if(t.includes('batt')) return { icon:'🔋', unit:'%' };
+  if(t.includes('gps')) return { icon:'🗺️', unit:'' };
+  if(t.includes('status')) return { icon:'⚙️', unit:'' };
+  return { icon:'📡', unit:'' };
+}
+
+/* ---------------- channels + charts (drag to reorder) ---------------- */
+let channelOrder = [];
+function ensureChannel(topic){
+  if(!state.channels.has(topic)){ state.channels.set(topic, { history:[], lastPayload:'—', lastSeen:Date.now(), online:true, count:0, alertMin:null, alertMax:null }); channelOrder.push(topic); }
+  return state.channels.get(topic);
+}
+function numericValue(payload){
+  const parsed = tryParseJSON(payload);
+  if(typeof parsed === 'number') return parsed;
+  if(parsed && typeof parsed === 'object'){ const f = Object.values(parsed).find(v => typeof v === 'number'); if(f !== undefined) return f; }
+  const n = parseFloat(payload); return isNaN(n) ? null : n;
+}
+function drawSparkline(canvas, history){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth*2, h = canvas.height = 88;
+  ctx.clearRect(0,0,w,h);
+  if(history.length < 2) return;
+  const vals = history.map(p=>p.v); const min=Math.min(...vals), max=Math.max(...vals); const range=(max-min)||1;
+  ctx.beginPath();
+  history.forEach((p,i) => { const x=(i/(history.length-1))*w; const y=h-((p.v-min)/range)*(h-10)-5; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle=cssVar('--amber'); ctx.lineWidth=3; ctx.shadowColor=cssVar('--amber'); ctx.shadowBlur=6; ctx.stroke();
+}
+function makeDraggable(el, list, key, onDrop){
+  el.draggable = true;
+  el.addEventListener('dragstart', () => { el.classList.add('dragging'); state.draggingKey = key; });
+  el.addEventListener('dragend', () => { el.classList.remove('dragging'); onDrop(); });
+  el.addEventListener('dragover', e => e.preventDefault());
+  el.addEventListener('drop', () => {
+    const from = list.indexOf(state.draggingKey), to = list.indexOf(key);
+    if(from > -1 && to > -1){ list.splice(from,1); list.splice(to,0,state.draggingKey); }
+  });
+}
+function renderChannelGrid(){
+  grid.innerHTML='';
+  channelOrder.filter(t => state.channels.has(t)).forEach(topic => {
+    const ch = state.channels.get(topic);
+    const offline = (Date.now()-ch.lastSeen) > 8000; ch.online = !offline;
+    const meta = metricMeta(topic);
+    const card = document.createElement('div');
+    card.className = 'card' + (offline ? ' offline' : '');
+    card.dataset.searchtext = topic.toLowerCase();
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="topic-name" data-topic="${escapeHtml(topic)}">${meta.icon} ${escapeHtml(topic)}</div>
+          <div class="topic-tag">${offline ? 'no signal' : 'subscribed'}${ch.alertMin!==null||ch.alertMax!==null ? ' · alert set' : ''}</div>
+        </div>
+        <div class="online-dot ${offline ? '' : 'live'}"></div>
+      </div>
+      <canvas class="trace" data-topic="${escapeHtml(topic)}"></canvas>
+      <div class="payload">${escapeHtml(prettyPayload(ch.lastPayload))}${meta.unit && numericValue(ch.lastPayload)!==null ? ' ' + meta.unit : ''}</div>
+      <div class="card-meta"><span>${ch.count} msgs</span><span>${offline ? '' : 'last: ' + timeAgo(ch.lastSeen)}</span></div>`;
+    grid.appendChild(card);
+    const canvas = card.querySelector('canvas');
+    drawSparkline(canvas, ch.history);
+    canvas.addEventListener('click', () => openModal(topic));
+    card.querySelector('.topic-name').addEventListener('click', () => openModal(topic));
+    makeDraggable(card, channelOrder, topic, renderChannelGrid);
+  });
+}
+
+/* ---------------- modal / detail chart + alerts + per-channel export ---------------- */
+function openModal(topic){
+  state.modalTopic = topic; const ch = state.channels.get(topic);
+  $('modal-title').textContent = topic;
+  $('modal-alert-min').value = ch.alertMin ?? ''; $('modal-alert-max').value = ch.alertMax ?? '';
+  $('modal-backdrop').classList.add('open'); drawModalChart(ch.history);
+}
+function drawModalChart(history){
+  const canvas = $('modal-chart'); const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth, h = canvas.height = 220;
+  ctx.clearRect(0,0,w,h);
+  if(history.length < 2){ ctx.fillStyle=cssVar('--muted'); ctx.font='12px monospace'; ctx.fillText('Not enough numeric data yet...', 16, h/2); return; }
+  const vals = history.map(p=>p.v); const min=Math.min(...vals), max=Math.max(...vals); const range=(max-min)||1;
+  ctx.strokeStyle=cssVar('--line'); ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ const y=10+i*(h-20)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  ctx.beginPath();
+  history.forEach((p,i) => { const x=(i/(history.length-1))*(w-20)+10; const y=h-10-((p.v-min)/range)*(h-20); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle=cssVar('--teal'); ctx.lineWidth=2; ctx.shadowColor=cssVar('--teal'); ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
+  ctx.fillStyle=cssVar('--muted'); ctx.font='11px monospace'; ctx.fillText(max.toFixed(2),6,14); ctx.fillText(min.toFixed(2),6,h-6);
+}
+$('modal-close').addEventListener('click', () => $('modal-backdrop').classList.remove('open'));
+$('modal-backdrop').addEventListener('click', e => { if(e.target.id==='modal-backdrop') $('modal-backdrop').classList.remove('open'); });
+$('modal-save-alert').addEventListener('click', () => {
+  const ch = state.channels.get(state.modalTopic);
+  const min = $('modal-alert-min').value.trim(), max = $('modal-alert-max').value.trim();
+  ch.alertMin = min===''?null:parseFloat(min); ch.alertMax = max===''?null:parseFloat(max);
+  pushToast('Alert thresholds saved for ' + state.modalTopic, 'info'); renderChannelGrid();
+});
+$('modal-export-csv').addEventListener('click', () => {
+  const ch = state.channels.get(state.modalTopic);
+  const rows = ['timestamp,value', ...ch.history.map(p => `${new Date(p.t).toISOString()},${p.v}`)];
+  downloadBlob(rows.join('\n'), state.modalTopic.replace(/\//g,'_') + '-history.csv', 'text/csv');
+});
+
+/* ---------------- message history / search / export ---------------- */
+function renderLog(){
+  const q = state.searchQuery.toLowerCase();
+  const filtered = q ? state.history.filter(m => m.topic.toLowerCase().includes(q) || m.payload.toLowerCase().includes(q)) : state.history;
+  logEl.innerHTML='';
+  filtered.slice(-200).forEach(m => {
+    const line = document.createElement('div'); line.className='log-line';
+    line.innerHTML = `<span class="t">${m.time}</span><span class="top">${escapeHtml(m.topic)}</span><span class="pay">${escapeHtml(m.payload)}</span>`;
+    logEl.appendChild(line);
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+$('search-input').addEventListener('input', e => { state.searchQuery = e.target.value; renderLog(); });
+$('clear-history').addEventListener('click', () => { state.history = []; renderLog(); });
+$('export-csv-btn').addEventListener('click', () => {
+  const rows = ['time,topic,payload', ...state.history.map(m => `"${m.time}","${m.topic.replace(/"/g,'""')}","${m.payload.replace(/"/g,'""')}"`)];
+  downloadBlob(rows.join('\n'), 'brokerduh-history.csv', 'text/csv');
+});
+$('export-json-btn').addEventListener('click', () => downloadBlob(JSON.stringify(state.history, null, 2), 'brokerduh-history.json', 'application/json'));
+
+/* ---------------- visual automation editor ---------------- */
+function redrawAutomationSVG(){
+  const svg = $('automation-svg'); svg.innerHTML='';
+  const canvasEl = $('automation-canvas'); const canvasRect = canvasEl.getBoundingClientRect();
+  svg.setAttribute('width', canvasEl.scrollWidth); svg.setAttribute('height', canvasEl.scrollHeight);
+  state.automationRules.forEach(r => {
+    const t = $('trig-'+r.id), a = $('act-'+r.id);
+    if(!t || !a) return;
+    const tr = t.getBoundingClientRect(), ar = a.getBoundingClientRect();
+    const x1 = tr.left - canvasRect.left + canvasEl.scrollLeft + tr.width/2, y1 = tr.top - canvasRect.top + canvasEl.scrollTop + tr.height;
+    const x2 = ar.left - canvasRect.left + canvasEl.scrollLeft + ar.width/2, y2 = ar.top - canvasRect.top + canvasEl.scrollTop;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}`);
+    path.setAttribute('stroke', cssVar('--amber')); path.setAttribute('stroke-width','2'); path.setAttribute('fill','none');
+    svg.appendChild(path);
+  });
+}
+function makeNodeDraggable(el){
+  let dragging=false, ox=0, oy=0;
+  el.addEventListener('pointerdown', e => {
+    if(e.target.classList.contains('del-node')) return;
+    dragging=true; ox = e.clientX - el.offsetLeft; oy = e.clientY - el.offsetTop; el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e => {
+    if(!dragging) return;
+    el.style.left = (e.clientX - ox) + 'px'; el.style.top = (e.clientY - oy) + 'px';
+    redrawAutomationSVG();
+  });
+  el.addEventListener('pointerup', () => dragging=false);
+}
+function renderRules(){
+  const canvas = $('automation-canvas');
+  canvas.querySelectorAll('.node').forEach(n => n.remove());
+  const opSym = { gt:'>', lt:'<', eq:'=' };
+  state.automationRules.forEach((r,i) => {
+    if(r.tx === undefined){ r.tx = 20 + (i%3)*220; r.ty = 20 + Math.floor(i/3)*180; r.ax = r.tx; r.ay = r.ty + 100; }
+    const trig = document.createElement('div'); trig.className='node trigger'; trig.id='trig-'+r.id;
+    trig.style.left = r.tx+'px'; trig.style.top = r.ty+'px';
+    trig.innerHTML = `<b>Trigger</b>${escapeHtml(r.topic)} ${opSym[r.op]} ${r.value}<span class="del-node" data-del="${r.id}">✕</span>`;
+    const act = document.createElement('div'); act.className='node action'; act.id='act-'+r.id;
+    act.style.left = r.ax+'px'; act.style.top = r.ay+'px';
+    act.innerHTML = `<b>Action</b>publish "${escapeHtml(r.actionPayload)}" → ${escapeHtml(r.actionTopic)}`;
+    canvas.appendChild(trig); canvas.appendChild(act);
+    makeNodeDraggable(trig); makeNodeDraggable(act);
+    trig.querySelector('.del-node').addEventListener('click', () => { state.automationRules = state.automationRules.filter(x => x.id !== r.id); renderRules(); });
+  });
+  setTimeout(redrawAutomationSVG, 30);
+}
+$('rule-new-btn').addEventListener('click', () => $('rule-form').classList.toggle('open'));
+$('rl-cancel').addEventListener('click', () => $('rule-form').classList.remove('open'));
+$('rl-save').addEventListener('click', () => {
+  const topic=$('rl-topic').value.trim(), op=$('rl-op').value, value=parseFloat($('rl-value').value);
+  const actionTopic=$('rl-action-topic').value.trim(), actionPayload=$('rl-action-payload').value.trim();
+  if(!topic || isNaN(value) || !actionTopic || !actionPayload){ pushToast('Fill in all rule fields'); return; }
+  state.automationRules.push({ id:uid(), topic, op, value, actionTopic, actionPayload, lastFired:0 });
+  ['rl-topic','rl-value','rl-action-topic','rl-action-payload'].forEach(id => $(id).value='');
+  $('rule-form').classList.remove('open'); renderRules(); pushToast('Automation rule saved', 'info');
+});
+function evaluateRules(topic, value){
+  if(value === null) return;
+  state.automationRules.filter(r => r.topic === topic).forEach(r => {
+    const hit = (r.op==='gt' && value > r.value) || (r.op==='lt' && value < r.value) || (r.op==='eq' && value === r.value);
+    if(hit && Date.now() - r.lastFired > 15000){
+      r.lastFired = Date.now(); publishMessage(r.actionTopic, r.actionPayload);
+      pushToast(`⚡ Automation fired: ${topic} triggered → ${r.actionTopic} = ${r.actionPayload}`, 'info');
+    }
+  });
+}
+
+/* ---------------- controls incl. camera (drag to reorder) ---------------- */
+let controlOrder = [];
+function renderControls(){
+  controlOrder = controlOrder.filter(id => state.controls.find(c => c.id === id));
+  state.controls.forEach(c => { if(!controlOrder.includes(c.id)) controlOrder.push(c.id); });
+  controlGrid.innerHTML='';
+  controlOrder.forEach(cid => {
+    const c = state.controls.find(x => x.id === cid); if(!c) return;
+    const card = document.createElement('div'); card.className='control-card';
+    let body = '';
+    if(c.type === 'toggle') body = `<label class="switch"><input type="checkbox" data-toggle="${c.id}" ${c.value ? 'checked' : ''}><span class="slider-track"></span></label>`;
+    else if(c.type === 'slider') body = `<div class="range-row"><input type="range" min="${c.min}" max="${c.max}" value="${c.value}" data-slider="${c.id}"><span class="range-val" id="range-val-${c.id}">${c.value}</span></div>`;
+    else if(c.type === 'camera') body = `<img class="cam-frame" src="${escapeHtml(c.topic)}" onerror="this.outerHTML='<div class=cam-error>Could not load stream — check URL &amp; mixed-content (http vs https)</div>'" />`;
+    else body = `<button class="primary big-btn" data-press="${c.id}">Press</button>`;
+    card.innerHTML = `<div class="control-label"><span>${escapeHtml(c.label)}</span><button data-del-ctl="${c.id}">✕</button></div>${body}`;
+    controlGrid.appendChild(card);
+    makeDraggable(card, controlOrder, cid, renderControls);
+  });
+  controlGrid.querySelectorAll('[data-toggle]').forEach(inp => inp.addEventListener('change', () => {
+    const c = state.controls.find(x => x.id === inp.dataset.toggle); c.value = inp.checked;
+    publishMessage(c.topic, inp.checked ? c.onPayload : c.offPayload);
+  }));
+  controlGrid.querySelectorAll('[data-slider]').forEach(inp => inp.addEventListener('input', () => {
+    const c = state.controls.find(x => x.id === inp.dataset.slider); c.value = inp.value;
+    $('range-val-' + c.id).textContent = inp.value; publishMessage(c.topic, String(inp.value));
+  }));
+  controlGrid.querySelectorAll('[data-press]').forEach(btn => btn.addEventListener('click', () => {
+    const c = state.controls.find(x => x.id === btn.dataset.press); publishMessage(c.topic, c.onPayload);
+  }));
+  controlGrid.querySelectorAll('[data-del-ctl]').forEach(btn => btn.addEventListener('click', () => { state.controls = state.controls.filter(x => x.id !== btn.dataset.delCtl); renderControls(); }));
+}
+$('control-new-btn').addEventListener('click', () => $('control-form').classList.toggle('open'));
+$('ctl-cancel').addEventListener('click', () => $('control-form').classList.remove('open'));
+$('ctl-save').addEventListener('click', () => {
+  const label=$('ctl-label').value.trim(), topic=$('ctl-topic').value.trim(), type=$('ctl-type').value;
+  if(!label || !topic){ pushToast('Control needs a label and topic'); return; }
+  const c = { id:uid(), label, topic, type,
+    onPayload: $('ctl-on').value.trim() || 'on', offPayload: $('ctl-off').value.trim() || 'off',
+    min: parseFloat($('ctl-min').value) || 0, max: parseFloat($('ctl-max').value) || 100, value: type==='slider' ? 0 : false };
+  state.controls.push(c);
+  ['ctl-label','ctl-topic','ctl-on','ctl-off','ctl-min','ctl-max'].forEach(id => $(id).value='');
+  $('control-form').classList.remove('open'); renderControls(); pushToast('Control added', 'info');
+});
+
+/* ---------------- voice commands ---------------- */
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(!SpeechRecognitionCtor){ $('mic-btn').disabled = true; $('voice-support-hint').textContent = "Voice recognition isn't supported in this browser — try Chrome or Edge."; }
+else { $('voice-support-hint').textContent = 'Tap Listen, then say something like "turn on the light".'; }
+function renderVoiceRules(){
+  const list = $('voice-rule-list'); list.innerHTML='';
+  state.voiceRules.forEach(r => {
+    const item = document.createElement('div'); item.className='rule-item';
+    item.innerHTML = `<div class="rule-text">"${escapeHtml(r.phrase)}" → publish "<b>${escapeHtml(r.payload)}</b>" to <b>${escapeHtml(r.topic)}</b></div><button class="small danger" data-del="${r.id}">Remove</button>`;
+    list.appendChild(item);
+  });
+  list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => { state.voiceRules = state.voiceRules.filter(r => r.id !== btn.dataset.del); renderVoiceRules(); }));
+}
+$('voice-new-btn').addEventListener('click', () => $('voice-form').classList.toggle('open'));
+$('vc-cancel').addEventListener('click', () => $('voice-form').classList.remove('open'));
+$('vc-save').addEventListener('click', () => {
+  const phrase=$('vc-phrase').value.trim().toLowerCase(), topic=$('vc-topic').value.trim(), payload=$('vc-payload').value.trim();
+  if(!phrase || !topic || !payload){ pushToast('Fill in all voice command fields'); return; }
+  state.voiceRules.push({ id:uid(), phrase, topic, payload });
+  $('vc-phrase').value=''; $('vc-topic').value=''; $('vc-payload').value='';
+  $('voice-form').classList.remove('open'); renderVoiceRules(); pushToast('Voice command saved', 'info');
+});
+if(SpeechRecognitionCtor){
+  const recognition = new SpeechRecognitionCtor();
+  recognition.continuous = false; recognition.lang = 'en-US';
+  recognition.onresult = e => {
+    const said = e.results[0][0].transcript.toLowerCase();
+    pushToast('Heard: "' + said + '"', 'info');
+    const match = state.voiceRules.find(r => said.includes(r.phrase));
+    if(match) publishMessage(match.topic, match.payload); else pushToast('No voice command matched that phrase');
+  };
+  recognition.onend = () => { state.listening = false; $('mic-btn').textContent = '🎤 Listen'; };
+  recognition.onerror = () => { state.listening = false; $('mic-btn').textContent = '🎤 Listen'; };
+  $('mic-btn').addEventListener('click', () => { if(state.listening) return; state.listening = true; $('mic-btn').textContent = '🎤 Listening...'; recognition.start(); });
+}
+
+/* ---------------- GPS map ---------------- */
+function initGpsMap(){
+  state.gpsMap = L.map('gps-map', { zoomControl:true }).setView([37.7749, -122.4194], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap' }).addTo(state.gpsMap);
+  state.gpsMarker = L.marker([37.7749, -122.4194]).addTo(state.gpsMap);
+  state.gpsPolyline = L.polyline([], { color: '#FFB020' }).addTo(state.gpsMap);
+}
+function updateGps(lat, lon){
+  if(!state.gpsMap) return;
+  state.gpsMarker.setLatLng([lat,lon]);
+  state.gpsTrail.push([lat,lon]); if(state.gpsTrail.length > 200) state.gpsTrail.shift();
+  state.gpsPolyline.setLatLngs(state.gpsTrail);
+  state.gpsMap.panTo([lat,lon]);
+}
+function checkGpsPayload(topic, payload){
+  if(!topic.toLowerCase().includes('gps')) return;
+  const parsed = tryParseJSON(payload);
+  if(parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') updateGps(parsed.lat, parsed.lon);
+}
+
+/* ---------------- incoming message pipeline ---------------- */
+function checkAlerts(topic, ch, value){
+  const devId = deviceIdFromTopic(topic);
+  const device = devId ? state.devices.get(devId) : null;
+  if(device && device.muted) return;
+  if(value === null) return;
+  if(ch.alertMin !== null && value < ch.alertMin) pushToast(`⚠ ${topic} = ${value} (below min ${ch.alertMin})`);
+  if(ch.alertMax !== null && value > ch.alertMax) pushToast(`⚠ ${topic} = ${value} (above max ${ch.alertMax})`);
+}
+function handleIncoming(topic, payload){
+  const ch = ensureChannel(topic);
+  ch.lastPayload = payload; ch.lastSeen = Date.now(); ch.count++;
+  const value = numericValue(payload);
+  if(value !== null){ ch.history.push({t:Date.now(), v:value}); if(ch.history.length > 60) ch.history.shift(); }
+  const devId = deviceIdFromTopic(topic);
+  if(devId) ensureDevice(devId);
+  checkAlerts(topic, ch, value);
+  evaluateRules(topic, value);
+  checkGpsPayload(topic, payload);
+  state.msgTimestamps.push(Date.now());
+  state.history.push({ time: nowLabel(), topic, payload });
+  if(state.history.length > 500) state.history.shift();
+  renderLog(); renderChannelGrid(); renderDevices();
+  if(state.modalTopic === topic) drawModalChart(ch.history);
+}
+function publishMessage(topic, payload){
+  if(state.mode === 'live' && state.client && state.client.connected) state.client.publish(topic, String(payload));
+  else handleIncoming(topic, String(payload));
+}
+setInterval(() => {
+  const cutoff = Date.now() - 60000;
+  state.msgTimestamps = state.msgTimestamps.filter(t => t > cutoff);
+  statRate.textContent = state.msgTimestamps.length;
+  renderChannelGrid(); renderDevices();
+}, 1000);
+
+/* ---------------- demo mode ---------------- */
+let demoTimer = null, demoGpsTimer = null, demoGpsPos = { lat:37.7749, lon:-122.4194 };
+const demoDevices = [
+  { topic:'devices/eyebot/telemetry', gen:() => (20 + Math.random()*8).toFixed(1) },
+  { topic:'devices/paperplane/telemetry', gen:() => JSON.stringify({battery: Math.round(Math.random()*100)}) },
+  { topic:'devices/flightctrl/pid', gen:() => (Math.random()*10-5).toFixed(2) },
+  { topic:'devices/eyebot/status', gen:() => Math.random() > 0.15 ? 'ok' : 'lag' },
+];
+function startDemo(){
+  stopLive(); state.mode='demo'; statusPill.className='status-pill demo'; statusText.textContent='DEMO MODE';
+  demoDevices.forEach(d => ensureChannel(d.topic));
+  demoTimer = setInterval(() => { const d = demoDevices[Math.floor(Math.random()*demoDevices.length)]; handleIncoming(d.topic, d.gen()); }, 900);
+  demoGpsTimer = setInterval(() => {
+    demoGpsPos.lat += (Math.random()-0.5)*0.002; demoGpsPos.lon += (Math.random()-0.5)*0.002;
+    handleIncoming('devices/rover/gps', JSON.stringify({lat:demoGpsPos.lat, lon:demoGpsPos.lon}));
+  }, 2000);
+}
+function stopDemo(){ if(demoTimer) clearInterval(demoTimer); if(demoGpsTimer) clearInterval(demoGpsTimer); demoTimer=null; demoGpsTimer=null; }
+
+/* ---------------- live broker connection ---------------- */
+function connectLive(profile){
+  stopDemo();
+  if(state.client){ try{ state.client.end(true); }catch(e){} }
+  state.channels.clear(); state.devices.clear(); channelOrder = [];
+  let url = profile.url;
+  if(profile.tls && url.startsWith('ws://')) url = url.replace('ws://','wss://');
+  pushToast('Connecting to ' + url + ' ...', 'info');
+  const opts = { connectTimeout:6000, reconnectPeriod:2000 };
+  if(profile.username) opts.username = profile.username;
+  if(profile.password) opts.password = profile.password;
+  const client = mqtt.connect(url, opts);
+  state.client = client; state.mode = 'live';
+  client.on('connect', () => { statusPill.className='status-pill live'; statusText.textContent='LIVE — '+profile.name; pushToast('Connected to '+profile.name,'info'); client.subscribe('#'); });
+  client.on('message', (topic, message) => handleIncoming(topic, message.toString()));
+  client.on('error', err => pushToast('Broker error: ' + err.message));
+  client.on('close', () => { statusText.textContent='DISCONNECTED'; statusPill.className='status-pill'; });
+}
+function stopLive(){ if(state.client){ try{ state.client.end(true); }catch(e){} state.client=null; } }
+
+/* ---------------- profiles + QR setup ---------------- */
+function renderProfiles(){
+  const row = $('profile-row'); row.innerHTML='';
+  state.profiles.forEach(p => {
+    const chip = document.createElement('div'); chip.className = 'profile-chip' + (p.id===state.activeProfileId ? ' active' : '');
+    chip.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><button class="small primary" data-connect="${p.id}">Connect</button><button class="small danger" data-del="${p.id}">✕</button>`;
+    row.appendChild(chip);
+  });
+  row.querySelectorAll('[data-connect]').forEach(btn => btn.addEventListener('click', () => { const p = state.profiles.find(x => x.id === btn.dataset.connect); state.activeProfileId=p.id; renderProfiles(); connectLive(p); }));
+  row.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => { state.profiles = state.profiles.filter(x => x.id !== btn.dataset.del); renderProfiles(); }));
+}
+$('pf-new-btn').addEventListener('click', () => $('profile-form').classList.add('open'));
+$('pf-cancel').addEventListener('click', () => $('profile-form').classList.remove('open'));
+$('pf-save').addEventListener('click', () => {
+  const name=$('pf-name').value.trim(), url=$('pf-url').value.trim();
+  if(!name || !url){ pushToast('Profile needs a name and a broker URL'); return; }
+  state.profiles.push({ id:uid(), name, url, username:$('pf-username').value.trim(), password:$('pf-password').value, tls:$('pf-tls').checked });
+  $('pf-name').value=''; $('pf-url').value=''; $('pf-username').value=''; $('pf-password').value=''; $('pf-tls').checked=false;
+  $('profile-form').classList.remove('open'); renderProfiles(); pushToast('Profile saved', 'info');
+});
+$('demo-btn').addEventListener('click', () => { state.activeProfileId=null; state.channels.clear(); state.devices.clear(); channelOrder=[]; renderProfiles(); startDemo(); });
+$('qr-btn').addEventListener('click', () => {
+  const active = state.profiles.find(p => p.id === state.activeProfileId) || state.profiles[0];
+  if(!active){ pushToast('Save a broker profile first, then generate its QR code'); return; }
+  const setupUrl = location.origin + location.pathname + '?broker=' + encodeURIComponent(active.url) + '&name=' + encodeURIComponent(active.name);
+  new QRious({ element: $('qr-canvas'), value: setupUrl, size: 240, foreground: '#0F1418', background: '#E7EDF2' });
+  $('qr-hint').textContent = 'Scanning opens the dashboard pre-filled with "' + active.name + '". True auto-discovery (mDNS/network scan) is blocked at the browser level — this QR flow is the practical alternative.';
+  $('qr-backdrop').classList.add('open');
+});
+$('qr-close').addEventListener('click', () => $('qr-backdrop').classList.remove('open'));
+$('qr-backdrop').addEventListener('click', e => { if(e.target.id==='qr-backdrop') $('qr-backdrop').classList.remove('open'); });
+(function checkQueryParams(){
+  const params = new URLSearchParams(location.search);
+  const brokerUrl = params.get('broker'), name = params.get('name');
+  if(brokerUrl){
+    const p = { id:uid(), name: name || 'Scanned broker', url: brokerUrl, username:'', password:'', tls:false };
+    state.profiles.push(p); state.activeProfileId = p.id;
+    pushToast('Broker profile "' + p.name + '" loaded from QR link', 'info');
+  }
+})();
+
+/* ---------------- import / export configuration ---------------- */
+$('config-export-btn').addEventListener('click', () => {
+  const cfg = {
+    profiles: state.profiles, controls: state.controls, automationRules: state.automationRules,
+    voiceRules: state.voiceRules, devices: Array.from(state.devices.entries()), theme: state.theme,
+  };
+  downloadBlob(JSON.stringify(cfg, null, 2), 'brokerduh-config.json', 'application/json');
+  pushToast('Config exported — note it may contain broker passwords in plain text', 'info');
+});
+$('config-import-btn').addEventListener('click', () => $('config-import-file').click());
+$('config-import-file').addEventListener('change', e => {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const cfg = JSON.parse(reader.result);
+      if(cfg.profiles) state.profiles = cfg.profiles;
+      if(cfg.controls) state.controls = cfg.controls;
+      if(cfg.automationRules) state.automationRules = cfg.automationRules;
+      if(cfg.voiceRules) state.voiceRules = cfg.voiceRules;
+      if(cfg.devices) state.devices = new Map(cfg.devices);
+      if(cfg.theme) state.theme = cfg.theme;
+      applyTheme(); renderProfiles(); renderControls(); renderRules(); renderVoiceRules(); renderDevices();
+      pushToast('Config imported', 'info');
+    } catch(err){ pushToast('Invalid config file'); }
+  };
+  reader.readAsText(file);
+});
+
+/* ---------------- publish console + JSON validation ---------------- */
+$('pub-btn').addEventListener('click', () => {
+  const topic=$('pub-topic').value.trim(), payload=$('pub-payload').value.trim(), jsonMode=$('pub-json-mode').checked;
+  $('json-error').style.display='none';
+  if(!topic || !payload) return;
+  if(jsonMode && tryParseJSON(payload) === undefined){ $('json-error').style.display='block'; return; }
+  publishMessage(topic, payload);
+  $('pub-payload').value='';
+});
+
+/* ---------------- PWA install + service worker ---------------- */
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.deferredInstallPrompt = e; $('pwa-install-btn').style.display='inline-flex'; });
+$('pwa-install-btn').addEventListener('click', async () => {
+  if(!state.deferredInstallPrompt) return;
+  state.deferredInstallPrompt.prompt();
+  await state.deferredInstallPrompt.userChoice;
+  state.deferredInstallPrompt = null; $('pwa-install-btn').style.display='none';
+});
+if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
+  window.addEventListener('load', () => { navigator.serviceWorker.register('service-worker.js').catch(() => {}); });
+}
+
+/* boot */
+applyLockUI(); applyTheme();
+try{ initGpsMap(); }catch(e){}
+startDemo(); renderProfiles(); renderDevices(); renderControls(); renderVoiceRules(); renderRules();
+</script>
+</body>
+</html>
